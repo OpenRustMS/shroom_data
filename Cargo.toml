@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "shroom-wz",
+    "shroom-wz-ui",
+    "shroom-wz-exporter"
+]
+resolver = "2"
