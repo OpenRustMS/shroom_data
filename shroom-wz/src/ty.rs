@@ -153,7 +153,6 @@ impl std::fmt::Debug for WzStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.as_str() {
             Some(s) => write!(f, "{s}"),
-            //TODO maybe get the byte repr
             None => write!(f, "x/{:?}", self.as_bytes()),
         }
     }
