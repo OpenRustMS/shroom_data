@@ -18,7 +18,7 @@ impl WzImgNode {
 
     pub fn canvas(canvas: WzCanvas) -> Self {
         Self {
-            name: format!("[CANVAS]: {}", canvas.other_byte.is_some()),
+            name: format!("[CANVAS]: {}", canvas.property.is_some()),
             canvas: Some(canvas),
         }
     }
@@ -96,12 +96,10 @@ impl WzImgTree {
                         ))),
                         InsertBehavior::UnderNode(&parent_id),
                     )?;
-                },
+                }
                 WzObject::Convex2D(val) => {
                     let vex = tree.insert(
-                        Node::new(WzImgNode::named(format!(
-                            "[CONVEX2] {}", val.0.len()
-                        ))),
+                        Node::new(WzImgNode::named(format!("[CONVEX2] {}", val.0.len()))),
                         InsertBehavior::UnderNode(&parent_id),
                     )?;
 
@@ -117,12 +115,10 @@ impl WzImgTree {
                 }
                 WzObject::SoundDX8(sound) => {
                     tree.insert(
-                        Node::new(WzImgNode::named(format!(
-                            "[SOUND] {:?}", sound
-                        ))),
+                        Node::new(WzImgNode::named(format!("[SOUND] {:?}", sound))),
                         InsertBehavior::UnderNode(&parent_id),
                     )?;
-                },
+                }
             };
         }
 

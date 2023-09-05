@@ -7,6 +7,7 @@ use crate::util::WzContext;
 
 pub mod canvas;
 pub mod prop;
+pub mod ser;
 pub mod sound;
 
 #[binrw]
@@ -47,14 +48,16 @@ impl Clone for WzUOLStr {
     }
 }
 
-impl WzUOLStr {
-    pub fn as_ref(&self) -> &WzStr {
+impl AsRef<WzStr> for WzUOLStr {
+    fn as_ref(&self) -> &WzStr {
         match self {
             Self::Str(s) | Self::StrTypeName(s) => s,
             Self::Offset(s) | Self::OffsetTypeName(s) => s.value.as_ref().unwrap(),
         }
     }
+}
 
+impl WzUOLStr {
     pub fn to_string(&self) -> Option<String> {
         self.as_ref().to_string()
     }

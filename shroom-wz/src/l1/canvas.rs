@@ -22,7 +22,7 @@ impl TryFrom<u8> for WzCanvasScaling {
         let n = value;
         Ok(Self(match n {
             0 | 4 => n,
-            _ => anyhow::bail!("Invalid scaling: {n}")
+            _ => anyhow::bail!("Invalid scaling: {n}"),
         }))
     }
 }
@@ -70,7 +70,7 @@ pub struct WzCanvas {
     pub unknown: u8,
     pub has_property: u8,
     #[br(if(has_property.eq(&1)), args_raw(ctx))]
-    pub other_byte: Option<WzProperty>,
+    pub property: Option<WzProperty>,
     pub width: WzInt,
     pub height: WzInt,
     #[br(try_map = |x: WzInt| x.try_into())]

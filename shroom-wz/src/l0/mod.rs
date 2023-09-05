@@ -54,7 +54,7 @@ impl WzDirHeader {
             name: WzStr::from_ascii("Root"),
             blob_size: WzInt(root_size as i32),
             checksum: WzInt(1),
-            offset: offset,
+            offset,
         }
     }
 }
@@ -78,12 +78,8 @@ impl BinRead for WzLinkData {
         let old_pos = reader.stream_position()?;
         reader.seek(io::SeekFrom::Start(args.crypto.offset_link(offset)))?;
 
-        dbg!(args.crypto.offset_link(offset));
-        dbg!(offset);
-
         let ty = u8::read_options(reader, endian, ())?;
         let name = WzStr::read_options(reader, endian, args)?;
-        dbg!(&name);
 
         // Seek back
         reader.seek(io::SeekFrom::Start(old_pos))?;

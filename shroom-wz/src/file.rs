@@ -17,6 +17,7 @@ use crate::{
         canvas::WzCanvas,
         obj::WzObject,
         prop::{WzObj, WzValue},
+        ser::WzImgSerializer,
     },
     ty::WzOffset,
     util::{BufReadExt, SubReader},
@@ -54,7 +55,7 @@ where
                 WzValue::Obj(ref obj) => obj,
                 _ => anyhow::bail!("Invalid obj: {cur:?}"),
             };
-            obj_storage = Some(self.read_obj(&obj)?);
+            obj_storage = Some(self.read_obj(obj)?);
             cur = obj_storage.as_ref().unwrap();
         }
 
@@ -104,6 +105,10 @@ where
                 Self::read_canvas_from(Cursor::new(buf), canvas)
             }
         }
+    }
+
+    pub fn into_serializer(self) -> anyhow::Result<WzImgSerializer<R>> {
+        WzImgSerializer::new(self)
     }
 }
 
@@ -209,8 +214,7 @@ impl<'r, R: WzIO> WzImgIter<'r, R> {
         root_name: &str,
         dir: &WzDirHeader,
     ) -> anyhow::Result<(Arc<String>, WzDir)> {
-        dbg!(dir);
-        let node = dbg!(self.r.read_dir_node(dir)?);
+        let node = self.r.read_dir_node(dir)?;
         let node_name = Arc::new(format!("{}/{}", root_name, dir.name.as_str().unwrap()));
 
         self.q.extend(
