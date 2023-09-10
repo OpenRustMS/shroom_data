@@ -12,13 +12,17 @@ pub struct WzTree {
 }
 
 impl WzTree {
-    pub fn read<R: WzIO>(r: &mut WzReader<R>) -> anyhow::Result<Self> {
+    pub fn read<R: WzIO>(r: &mut WzReader<R>, name: Option<&str>) -> anyhow::Result<Self> {
         let mut tree = Tree::new();
 
         let off = r.root_offset();
 
         let root_id = tree.insert(
-            Node::new(WzDirNode::Dir(WzDirHeader::root(1, off))),
+            Node::new(WzDirNode::Dir(WzDirHeader::root(
+                name.unwrap_or("Root"),
+                1,
+                off,
+            ))),
             InsertBehavior::AsRoot,
         )?;
         let root = r.read_root_dir()?;

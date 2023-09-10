@@ -107,8 +107,8 @@ where
         }
     }
 
-    pub fn into_serializer(self) -> anyhow::Result<WzImgSerializer<R>> {
-        WzImgSerializer::new(self)
+    pub fn into_serializer(self, skip_canvas: bool) -> anyhow::Result<WzImgSerializer<R>> {
+        WzImgSerializer::new(self, skip_canvas)
     }
 }
 
@@ -152,6 +152,16 @@ where
         })
     }
 
+    pub fn open_img(rdr: R, region: WzRegion, ver: WzVersion) -> anyhow::Result<Self> {
+        let data_offset = 0;
+
+        Ok(Self {
+            inner: rdr,
+            crypto: WzCrypto::from_region(region, ver, data_offset).into(),
+            data_offset: data_offset as u64,
+        })
+    }
+
     fn sub_reader(&mut self, offset: u64, size: u64) -> SubReader<'_, R> {
         SubReader::new(&mut self.inner, offset, size)
     }
@@ -173,6 +183,19 @@ where
         )?)
     }
 
+    pub fn root_img_reader(&mut self) -> io::Result<WzImgReader<SubReader<'_, R>>> {
+        // Get size by seeking to end
+        let end = self.inner.seek(SeekFrom::End(0))?;
+        let off = 0;
+        self.set_pos(off)?;
+        let crypto = self.crypto.clone();
+
+        Ok(WzImgReader {
+            r: self.sub_reader(off, end),
+            crypto,
+        })
+    }
+
     pub fn img_reader(&mut self, hdr: &WzImgHeader) -> io::Result<WzImgReader<SubReader<'_, R>>> {
         let off = hdr.offset.into();
         self.set_pos(off)?;
@@ -188,7 +211,7 @@ where
         let mut q = VecDeque::new();
         q.push_back((
             Arc::new("".to_string()),
-            WzDirNode::Dir(WzDirHeader::root(1, self.root_offset())),
+            WzDirNode::Dir(WzDirHeader::root("root", 1, self.root_offset())),
         ));
         WzImgIter { r: self, q }
     }

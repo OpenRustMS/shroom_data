@@ -34,7 +34,7 @@ mod tests {
             WzVersion(95),
         )?;
 
-        let tree = WzTree::read(&mut skill)?;
+        let tree = WzTree::read(&mut skill, None)?;
 
         dbg!(tree);
 
@@ -68,6 +68,21 @@ mod tests {
         let icon = img.read_canvas(canvas)?;
         let icon_img = icon.to_rgba_image()?;
         icon_img.save("icon.png")?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn load_img() -> anyhow::Result<()> {
+        let mut item = WzReader::open_file(
+            get_file_from_home("Downloads/411.img"),
+            version::WzRegion::GMS,
+            WzVersion(92),
+        )?;
+
+        let mut root = item.root_img_reader()?;
+        let obj = root.read_root_obj()?;
+        assert!(matches!(obj, WzObject::Property(_)));
 
         Ok(())
     }

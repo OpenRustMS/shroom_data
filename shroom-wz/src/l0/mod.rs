@@ -49,9 +49,9 @@ pub struct WzDirHeader {
 }
 
 impl WzDirHeader {
-    pub fn root(root_size: usize, offset: WzOffset) -> Self {
+    pub fn root(name: &str, root_size: usize, offset: WzOffset) -> Self {
         Self {
-            name: WzStr::from_ascii("Root"),
+            name: WzStr::from_ascii(name),
             blob_size: WzInt(root_size as i32),
             checksum: WzInt(1),
             offset,

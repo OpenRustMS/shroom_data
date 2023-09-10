@@ -36,6 +36,7 @@ impl Serialize for WzConvex2D {
 pub struct WzValueSerializer<'r, R> {
     value: &'r WzValue,
     r: Rc<RefCell<WzImgReader<R>>>,
+    skip_canvas: bool,
 }
 
 impl<'r, R: WzIO> Serialize for WzValueSerializer<'r, R> {
@@ -43,7 +44,11 @@ impl<'r, R: WzIO> Serialize for WzValueSerializer<'r, R> {
     where
         S: serde::Serializer,
     {
-        let WzValueSerializer { r, value } = self;
+        let WzValueSerializer {
+            r,
+            value,
+            skip_canvas,
+        } = self;
         match &value {
             WzValue::Null => ser.serialize_none(),
             WzValue::Short1(v) | WzValue::Short2(v) => ser.serialize_i16(*v),
@@ -55,7 +60,11 @@ impl<'r, R: WzIO> Serialize for WzValueSerializer<'r, R> {
             WzValue::Obj(obj) => {
                 let r = r.clone();
                 let object = { r.as_ref().borrow_mut().read_obj(obj).unwrap() };
-                let obj_ser = WzObjectSerializer { object: &object, r };
+                let obj_ser = WzObjectSerializer {
+                    object: &object,
+                    r,
+                    skip_canvas: *skip_canvas,
+                };
                 obj_ser.serialize(ser)
             }
         }
@@ -65,6 +74,7 @@ impl<'r, R: WzIO> Serialize for WzValueSerializer<'r, R> {
 pub struct WzObjectSerializer<'r, R> {
     object: &'r WzObject,
     r: Rc<RefCell<WzImgReader<R>>>,
+    skip_canvas: bool,
 }
 
 impl<'r, R: WzIO> Serialize for WzObjectSerializer<'r, R> {
@@ -80,12 +90,16 @@ impl<'r, R: WzIO> Serialize for WzObjectSerializer<'r, R> {
                     let val_ser = WzValueSerializer {
                         value: &entry.val,
                         r: self.r.clone(),
+                        skip_canvas: self.skip_canvas,
                     };
                     s.serialize_value(&val_ser)?;
                 }
                 s.end()
             }
             super::obj::WzObject::Canvas(canvas) => {
+                if self.skip_canvas {
+                    return ser.serialize_none();
+                }
                 if let Some(ref prop) = canvas.property {
                     let mut s = ser.serialize_map(prop.entries.0.len().into())?;
                     for entry in prop.entries.0.iter() {
@@ -93,6 +107,7 @@ impl<'r, R: WzIO> Serialize for WzObjectSerializer<'r, R> {
                         let val_ser = WzValueSerializer {
                             value: &entry.val,
                             r: self.r.clone(),
+                            skip_canvas: self.skip_canvas,
                         };
                         s.serialize_value(&val_ser)?;
                     }
@@ -112,14 +127,16 @@ impl<'r, R: WzIO> Serialize for WzObjectSerializer<'r, R> {
 pub struct WzImgSerializer<R> {
     img_reader: Rc<RefCell<WzImgReader<R>>>,
     root: WzObject,
+    skip_canvas: bool,
 }
 
 impl<R: WzIO> WzImgSerializer<R> {
-    pub fn new(mut img_reader: WzImgReader<R>) -> anyhow::Result<Self> {
+    pub fn new(mut img_reader: WzImgReader<R>, skip_canvas: bool) -> anyhow::Result<Self> {
         let root = img_reader.read_root_obj()?;
         Ok(Self {
             img_reader: Rc::new(RefCell::new(img_reader)),
             root,
+            skip_canvas,
         })
     }
 }
@@ -132,6 +149,7 @@ impl<'r, R: WzIO> Serialize for WzImgSerializer<R> {
         WzObjectSerializer {
             object: &self.root,
             r: self.img_reader.clone(),
+            skip_canvas: self.skip_canvas,
         }
         .serialize(serializer)
     }

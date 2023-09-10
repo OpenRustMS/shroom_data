@@ -11,6 +11,7 @@ pub trait TreeData {
 pub struct TreeNodeCtx {
     selected: Option<NodeId>,
     expanded: BTreeSet<NodeId>,
+    expand_all: bool,
 }
 
 impl TreeNodeCtx {
@@ -29,6 +30,10 @@ impl TreeNodeCtx {
     pub fn is_selected(&self, node_id: &NodeId) -> bool {
         self.selected.as_ref() == Some(node_id)
     }
+
+    pub fn is_expanded(&self, node_id: &NodeId) -> bool {
+        self.expand_all || self.expanded.contains(node_id)
+    }
 }
 
 #[derive(Props)]
@@ -37,15 +42,6 @@ pub struct TreeNodeProps<'a, T> {
     node_id: NodeId,
     level: usize,
     on_select: EventHandler<'a, NodeId>,
-}
-
-fn get_tree_margin(level: usize) -> &'static str {
-    match level {
-        0 => "",
-        1 => "ms-2",
-        2 => "ms-4",
-        _ => "ms-5",
-    }
 }
 
 fn TreeNode<'a, T: TreeData>(cx: Scope<'a, TreeNodeProps<'a, T>>) -> Element<'a> {
@@ -57,7 +53,7 @@ fn TreeNode<'a, T: TreeData>(cx: Scope<'a, TreeNodeProps<'a, T>>) -> Element<'a>
     } = cx.props;
     let ctx = use_shared_state::<TreeNodeCtx>(cx).unwrap();
 
-    let expanded = ctx.read().expanded.contains(node_id);
+    let expanded = ctx.read().is_expanded(&node_id);
 
     let childs = tree
         .children_ids(node_id)
@@ -91,7 +87,7 @@ fn TreeNode<'a, T: TreeData>(cx: Scope<'a, TreeNodeProps<'a, T>>) -> Element<'a>
         ""
     };
 
-    let margin = get_tree_margin(*level);
+    let pad_level = level.max(&1);
 
     let item = rsx!(button {
             class: "list-group-item list-group-item-action {active}",
@@ -107,7 +103,7 @@ fn TreeNode<'a, T: TreeData>(cx: Scope<'a, TreeNodeProps<'a, T>>) -> Element<'a>
                 }
             },
             span {
-                class: "{margin}",
+                style: "padding-left: calc({pad_level} * 1.75rem);"
             }
             "{prefix}{label}"
         }
@@ -129,7 +125,7 @@ pub struct TreeProps<'a, T> {
     on_select: EventHandler<'a, NodeId>,
 }
 
-pub fn Tree<'a, T: TreeData>(cx: Scope<'a, TreeProps<'a, T>>) -> Element<'a> {
+pub fn TreeView<'a, T: TreeData>(cx: Scope<'a, TreeProps<'a, T>>) -> Element<'a> {
     let tree = &cx.props.data;
     let on_select = &cx.props.on_select;
     let root_id = tree.root_node_id().unwrap();
@@ -137,10 +133,32 @@ pub fn Tree<'a, T: TreeData>(cx: Scope<'a, TreeProps<'a, T>>) -> Element<'a> {
     use_shared_state_provider(cx, || TreeNodeCtx {
         selected: None,
         expanded: BTreeSet::new(),
+        expand_all: false,
     });
 
-    cx.render(rsx!(ul {
+    let ctx = use_shared_state::<TreeNodeCtx>(cx).expect("Tree context");
+
+    cx.render(rsx!(
+    ul {
         class: "list-group",
+        li {
+            class: "list-group-item",
+            button {
+                class: "btn btn-primary m-1",
+                onclick: move |_| {
+                    ctx.write().expand_all = true;
+                },
+                "Expand All"
+            }
+            button {
+                class: "btn btn-primary",
+                onclick: move |_| {
+                    ctx.write().expanded.clear();
+                    ctx.write().expand_all = false;
+                },
+                "Collapse All"
+            }
+        },
         TreeNode {
             tree: tree,
             node_id: root_id.clone(),

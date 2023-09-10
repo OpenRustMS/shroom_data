@@ -29,7 +29,7 @@ pub struct WzImgTree {
 }
 
 impl WzImgTree {
-    pub fn read<R>(r: &mut WzImgReader<R>) -> anyhow::Result<Self>
+    pub fn read<R>(r: &mut WzImgReader<R>, root_name: Option<&str>) -> anyhow::Result<Self>
     where
         R: WzIO,
     {
@@ -37,7 +37,7 @@ impl WzImgTree {
         let obj = r.read_root_obj()?;
 
         let root_id = tree.insert(
-            Node::new(WzImgNode::named("Root".to_string())),
+            Node::new(WzImgNode::named(root_name.unwrap_or("Root").to_string())),
             InsertBehavior::AsRoot,
         )?;
         let mut q = VecDeque::new();
