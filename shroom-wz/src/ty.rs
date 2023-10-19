@@ -1,11 +1,10 @@
 use std::{
     io::{Read, Seek},
     num::Wrapping,
-    ops::Neg,
+    ops::{Deref, DerefMut, Neg},
 };
 
 use binrw::{binrw, BinRead, BinWrite, VecArgs};
-use image::EncodableLayout;
 
 use crate::{crypto::WzCrypto, util::WzContext};
 
@@ -14,6 +13,20 @@ pub type RefWzCrypto<'a> = (&'a WzCrypto,);
 /// Compressed Int
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WzInt(pub i32);
+
+impl Deref for WzInt {
+    type Target = i32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for WzInt {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl BinRead for WzInt {
     type Args<'a> = ();
@@ -144,61 +157,37 @@ pub struct WzOffsetStr {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum WzStr {
-    ASCII(Vec<u8>),
-    Wide(Vec<u16>),
+pub struct WzStr(String);
+
+impl WzStr {
+    pub fn new(s: String) -> Self {
+        Self(s)
+    }
 }
 
 impl std::fmt::Debug for WzStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.as_str() {
-            Some(s) => write!(f, "{s}"),
-            None => write!(f, "x/{:?}", self.as_bytes()),
-        }
+        write!(f, "{:?}", self.0)
     }
 }
 
-impl WzStr {
-    pub fn as_bytes(&self) -> &[u8] {
-        match self {
-            Self::ASCII(s) => s.as_slice(),
-            Self::Wide(s) => bytemuck::cast_slice(s.as_slice()),
-        }
+impl std::fmt::Display for WzStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
+}
 
-    pub fn from_ascii(s: &str) -> Self {
-        //TODO check ascii
-        Self::ASCII(s.as_bytes().to_vec())
+impl Deref for WzStr {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
+}
 
-    pub fn as_str(&self) -> Option<&str> {
-        match self {
-            Self::ASCII(s) => std::str::from_utf8(s.as_bytes()).ok(),
-            _ => None,
-        }
-    }
-
-    pub fn as_ascii_str(&self) -> Option<&[u8]> {
-        match self {
-            Self::ASCII(s) => Some(s.as_bytes()),
-            _ => None,
-        }
-    }
-
-    pub fn as_wstr(&self) -> Option<&[u16]> {
-        match self {
-            Self::Wide(s) => Some(s.as_slice()),
-            _ => None,
-        }
-    }
-
-    pub fn to_string(&self) -> Option<String> {
-        match self {
-            Self::ASCII(s) => std::str::from_utf8(s.as_slice())
-                .ok()
-                .map(|s| s.to_string()),
-            Self::Wide(s) => String::from_utf16(s.as_slice()).ok(),
-        }
+impl DerefMut for WzStr {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -210,32 +199,33 @@ impl BinRead for WzStr {
         endian: binrw::Endian,
         args: Self::Args<'_>,
     ) -> binrw::BinResult<Self> {
-        let (is_ascii, len) = {
-            let flag = i8::read_options(reader, endian, ())?;
-            match flag {
-                // Negative is ASCII
-                -128 => (true, i32::read_options(reader, endian, ())? as usize),
-                ln if ln <= 0 => (true, -ln as usize),
-                //Positive is unicode
-                127 => (false, i32::read_options(reader, endian, ())? as usize),
-                ln => (false, ln as usize),
-            }
-        };
+        let flag = i8::read_options(reader, endian, ())?;
+        Ok(if flag <= 0 {
+            let ln = if flag == -128 {
+                i32::read_options(reader, endian, ())? as usize
+            } else {
+                -flag as usize
+            };
 
-        Ok(if is_ascii {
-            let mut data = vec![0; len];
+            let mut data = vec![0; ln];
             reader.read_exact(&mut data)?;
             xor_mask_ascii(&mut data);
             args.crypto.transform(data.as_mut_slice().into());
-            WzStr::ASCII(data)
+            WzStr::new(String::from_utf8(data).unwrap()) // TODO propagate error
         } else {
-            let mut data = vec![0u16; len];
+            let ln = if flag == 127 {
+                i32::read_options(reader, endian, ())? as usize
+            } else {
+                flag as usize
+            };
+
+            let mut data = vec![0u16; ln];
             reader.read_exact(bytemuck::cast_slice_mut(data.as_mut_slice()))?;
             xor_mask_unicode(&mut data);
             args.crypto
                 .transform(bytemuck::cast_slice_mut(data.as_mut_slice()).into());
 
-            WzStr::Wide(data)
+            WzStr::new(String::from_utf16(&data).unwrap()) // TODO propagate error
         })
     }
 }
@@ -249,38 +239,37 @@ impl BinWrite for WzStr {
         endian: binrw::Endian,
         args: Self::Args<'_>,
     ) -> binrw::BinResult<()> {
-        match self {
-            Self::ASCII(ref data) => {
-                let n = data.len();
-                if n >= 128 {
-                    i8::MIN.write_options(writer, endian, ())?;
-                    (n as i32).neg().write_options(writer, endian, ())?;
-                } else {
-                    (n as i8).neg().write_options(writer, endian, ())?;
-                }
-
-                let mut data = data.clone();
-                args.crypto.transform(data.as_mut_slice().into());
-                xor_mask_ascii(&mut data);
-
-                data.write_options(writer, endian, ())?;
+        let is_ascii = self.0.is_ascii();
+        if is_ascii {
+            let mut data = self.0.as_bytes().to_vec();
+            let n = data.len();
+            if n >= 128 {
+                i8::MIN.write_options(writer, endian, ())?;
+                (n as i32).neg().write_options(writer, endian, ())?;
+            } else {
+                (n as i8).neg().write_options(writer, endian, ())?;
             }
-            Self::Wide(ref data) => {
-                let n = data.len();
-                if n >= 127 {
-                    i8::MAX.write_options(writer, endian, ())?;
-                    (n as i32).write_options(writer, endian, ())?;
-                } else {
-                    (n as i8).write_options(writer, endian, ())?;
-                }
 
-                let mut data = data.clone();
-                args.crypto
-                    .transform(bytemuck::cast_slice_mut(data.as_mut_slice()).into());
-                xor_mask_unicode(&mut data);
-                data.as_bytes().write_options(writer, endian, ())?;
+            args.crypto.transform(data.as_mut_slice().into());
+            xor_mask_ascii(&mut data);
+
+            data.write_options(writer, endian, ())?;
+        } else {
+            let mut data = self.0.encode_utf16().collect::<Vec<_>>();
+            let n = data.len();
+            if n >= 127 {
+                i8::MAX.write_options(writer, endian, ())?;
+                (n as i32).write_options(writer, endian, ())?;
+            } else {
+                (n as i8).write_options(writer, endian, ())?;
             }
-        }
+
+            args.crypto
+                .transform(bytemuck::cast_slice_mut(data.as_mut_slice()).into());
+            xor_mask_unicode(&mut data);
+
+            data.write_options(writer, endian, ())?;
+        };
         Ok(())
     }
 }

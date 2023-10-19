@@ -1,4 +1,5 @@
 use binrw::{BinRead, BinWrite};
+use derive_more::Unwrap;
 
 use crate::util::WzContext;
 
@@ -9,7 +10,7 @@ use super::{
     WzUOLStr,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Unwrap)]
 pub enum WzObject {
     Property(WzProperty),
     Canvas(WzCanvas),
@@ -28,13 +29,9 @@ impl BinRead for WzObject {
         args: Self::Args<'_>,
     ) -> binrw::BinResult<Self> {
         let ty_name = WzUOLStr::read_options(reader, endian, args)?;
+        let ty_name = ty_name.as_ref();
 
-        let ty_name = ty_name.as_ascii_str().ok_or_else(|| binrw::Error::Custom {
-            pos: 0,
-            err: Box::new(anyhow::format_err!("Invalid type name")),
-        })?;
-
-        Ok(match ty_name {
+        Ok(match ty_name.as_bytes() {
             b"Property" => Self::Property(WzProperty::read_options(reader, endian, args)?),
             b"Canvas" => Self::Canvas(WzCanvas::read_options(reader, endian, args)?),
             b"UOL" => Self::UOL(WzUOL::read_options(reader, endian, args)?),
@@ -65,10 +62,8 @@ impl BinWrite for WzObject {
             WzObject::UOL(v) => v.write_options(writer, endian, args),
             WzObject::Vec2(v) => v.write_options(writer, endian, ()),
             WzObject::Convex2D(v) => v.write_options(writer, endian, args),
-            _ => todo!(), /*
-                          WzObject::Canvas(v) => v.write_options(writer, endian, (args,)),
-                          WzObject::SoundDX8(v) => v.write_options(writer, endian, (args,)),
-                          */
+            WzObject::Canvas(_v) => todo!(), //v.write_options(writer, endian, (args,)),
+            WzObject::SoundDX8(v) => v.write_options(writer, endian, args),
         }
     }
 }

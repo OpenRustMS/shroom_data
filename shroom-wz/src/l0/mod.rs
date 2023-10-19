@@ -24,6 +24,17 @@ pub struct WzDir {
     pub entries: WzVec<WzDirNode>,
 }
 
+impl WzDir {
+    pub fn get(&self, name: &str) -> Option<&WzDirNode> {
+        self.entries.0.iter().find(|e| match e {
+            WzDirNode::Nil(_) => false,
+            WzDirNode::Link(_) => false, // TODO: should this be handled
+            WzDirNode::Dir(dir) => dir.name.as_str() == name,
+            WzDirNode::Img(img) => img.name.as_str() == name,
+        })
+    }
+}
+
 #[binrw]
 #[brw(little, import_raw(ctx: WzContext<'_>))]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +62,7 @@ pub struct WzDirHeader {
 impl WzDirHeader {
     pub fn root(name: &str, root_size: usize, offset: WzOffset) -> Self {
         Self {
-            name: WzStr::from_ascii(name),
+            name: WzStr::new(name.to_string()),
             blob_size: WzInt(root_size as i32),
             checksum: WzInt(1),
             offset,
@@ -62,8 +73,7 @@ impl WzDirHeader {
 #[derive(Debug, PartialEq, Clone)]
 pub struct WzLinkData {
     pub offset: u32,
-    pub ty: u8,
-    pub name: WzStr,
+    pub link_img: WzImgHeader,
 }
 
 impl BinRead for WzLinkData {
@@ -79,12 +89,17 @@ impl BinRead for WzLinkData {
         reader.seek(io::SeekFrom::Start(args.crypto.offset_link(offset)))?;
 
         let ty = u8::read_options(reader, endian, ())?;
-        let name = WzStr::read_options(reader, endian, args)?;
+        if ty != 4 {
+            // TODO: support dirs? and return a proper erro
+            panic!("Expected link type Img, got {}", ty);
+        }
+
+        let link_img = WzImgHeader::read_options(reader, endian, args)?;
 
         // Seek back
         reader.seek(io::SeekFrom::Start(old_pos))?;
 
-        Ok(Self { offset, ty, name })
+        Ok(Self { offset, link_img })
     }
 }
 
@@ -125,4 +140,15 @@ pub enum WzDirNode {
     Dir(#[brw(args_raw(ctx))] WzDirHeader),
     #[brw(magic(4u8))]
     Img(#[brw(args_raw(ctx))] WzImgHeader),
+}
+
+impl WzDirNode {
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            WzDirNode::Nil(_) => None,
+            WzDirNode::Link(link) => Some(link.link.link_img.name.as_str()),
+            WzDirNode::Dir(dir) => Some(dir.name.as_str()),
+            WzDirNode::Img(img) => Some(img.name.as_str()),
+        }
+    }
 }

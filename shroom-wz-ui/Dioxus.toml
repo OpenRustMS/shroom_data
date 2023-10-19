@@ -34,8 +34,10 @@ watch_path = ["src"]
 
 # CSS style file
 style = [
-    "https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css",
-    "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.3.0/font/bootstrap-icons.css"
+    #"css/bootstrap.min.css",
+    "https://cdn.jsdelivr.net/npm/daisyui@3.9.2/dist/full.css",
+
+    #"https://cdn.jsdelivr.net/npm/bootstrap-icons@1.3.0/font/bootstrap-icons.css"
 ]
 
 # Javascript code file
@@ -49,4 +51,6 @@ script = []
 style = []
 
 # Javascript code file
-script = []
+script = [
+    "https://cdn.tailwindcss.com"
+]

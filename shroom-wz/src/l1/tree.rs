@@ -1,131 +1,65 @@
 use std::collections::VecDeque;
 
-use id_tree::{InsertBehavior, Node, Tree};
+use id_tree::Tree;
 
-use crate::file::{WzIO, WzImgReader};
+use crate::{l0::WzImgHeader, val::WzValue};
 
-use super::{canvas::WzCanvas, obj::WzObject, prop::WzValue};
-
-pub struct WzImgNode {
-    pub name: String,
-    pub canvas: Option<WzCanvas>,
+pub struct WzValueNode<'a> {
+    pub name: &'a str,
+    pub value: &'a WzValue,
 }
 
-impl WzImgNode {
-    pub fn named(name: String) -> Self {
-        Self { name, canvas: None }
-    }
-
-    pub fn canvas(canvas: WzCanvas) -> Self {
-        Self {
-            name: format!("[CANVAS]: {}", canvas.property.is_some()),
-            canvas: Some(canvas),
-        }
-    }
+#[ouroboros::self_referencing]
+pub struct WzValueTree {
+    pub img_hdr: crate::l0::WzImgHeader,
+    pub root: WzValue,
+    #[borrows(root)]
+    #[covariant]
+    pub tree: id_tree::Tree<WzValueNode<'this>>,
 }
 
-pub struct WzImgTree {
-    tree: Tree<WzImgNode>,
-}
+impl WzValueTree {
+    pub fn build_from_img(img_hdr: WzImgHeader, root: WzValue) -> Self {
+        Self::new(img_hdr, root, |root| {
+            let mut tree = Tree::new();
+            let node = tree
+                .insert(
+                    id_tree::Node::new(WzValueNode {
+                        name: "root",
+                        value: root,
+                    }),
+                    id_tree::InsertBehavior::AsRoot,
+                )
+                .unwrap();
 
-impl WzImgTree {
-    pub fn read<R>(r: &mut WzImgReader<R>, root_name: Option<&str>) -> anyhow::Result<Self>
-    where
-        R: WzIO,
-    {
-        let mut tree = Tree::new();
-        let obj = r.read_root_obj()?;
+            let mut q = VecDeque::new();
+            q.push_back((root, node));
 
-        let root_id = tree.insert(
-            Node::new(WzImgNode::named(root_name.unwrap_or("Root").to_string())),
-            InsertBehavior::AsRoot,
-        )?;
-        let mut q = VecDeque::new();
-        q.push_back((root_id, obj));
-
-        while let Some((parent_id, obj)) = q.pop_front() {
-            match obj {
-                WzObject::Canvas(canvas) => {
-                    tree.insert(
-                        Node::new(WzImgNode::canvas(canvas)),
-                        InsertBehavior::UnderNode(&parent_id),
-                    )?;
-                }
-                WzObject::Property(prop) => {
-                    for prop in prop.entries.0.iter() {
-                        let val = match &prop.val {
-                            WzValue::Null => "null".to_string(),
-                            WzValue::Short1(v) | WzValue::Short2(v) => v.to_string(),
-                            WzValue::Int1(v) | WzValue::Int2(v) => v.0.to_string(),
-                            WzValue::Long(v) => v.0.to_string(),
-                            WzValue::F32(v) => v.0.to_string(),
-                            WzValue::F64(v) => v.to_string(),
-                            WzValue::Str(v) => v.as_str().unwrap_or("UNICODE").to_string(),
-                            WzValue::Obj(_v) => "obj".to_string(),
-                        };
-
-                        let prop_node = tree.insert(
-                            Node::new(WzImgNode::named(format!(
-                                "{}: {}",
-                                prop.name.as_str().unwrap_or("UNICODE"),
-                                val
-                            ))),
-                            InsertBehavior::UnderNode(&parent_id),
-                        )?;
-
-                        if let WzValue::Obj(ref obj) = prop.val {
-                            let obj = r.read_obj(obj)?;
-                            q.push_back((prop_node, obj));
+            while let Some((val, node)) = q.pop_front() {
+                let obj = match val {
+                    WzValue::Object(obj) => obj,
+                    WzValue::Canvas(canvas) => {
+                        if let Some(WzValue::Object(obj)) = canvas.sub.as_deref() {
+                            obj
+                        } else {
+                            continue;
                         }
                     }
-                }
-                WzObject::UOL(uol) => {
-                    tree.insert(
-                        Node::new(WzImgNode::named(format!(
-                            "[UOL]: {}",
-                            uol.entries.as_str().unwrap_or("")
-                        ))),
-                        InsertBehavior::UnderNode(&parent_id),
-                    )?;
-                }
-                WzObject::Vec2(vec2) => {
-                    tree.insert(
-                        Node::new(WzImgNode::named(format!(
-                            "[VEC2] x={},y={}",
-                            vec2.x.0, vec2.y.0
-                        ))),
-                        InsertBehavior::UnderNode(&parent_id),
-                    )?;
-                }
-                WzObject::Convex2D(val) => {
-                    let vex = tree.insert(
-                        Node::new(WzImgNode::named(format!("[CONVEX2] {}", val.0.len()))),
-                        InsertBehavior::UnderNode(&parent_id),
-                    )?;
+                    _ => continue,
+                };
 
-                    for vec2 in val.0.iter() {
-                        tree.insert(
-                            Node::new(WzImgNode::named(format!(
-                                "[VEC2] x={},y={}",
-                                vec2.x.0, vec2.y.0
-                            ))),
-                            InsertBehavior::UnderNode(&vex),
-                        )?;
-                    }
+                for (k, v) in obj.0.iter() {
+                    let child = tree
+                        .insert(
+                            id_tree::Node::new(WzValueNode { name: k, value: v }),
+                            id_tree::InsertBehavior::UnderNode(&node),
+                        )
+                        .unwrap();
+                    q.push_back((v, child));
                 }
-                WzObject::SoundDX8(sound) => {
-                    tree.insert(
-                        Node::new(WzImgNode::named(format!("[SOUND] {:?}", sound))),
-                        InsertBehavior::UnderNode(&parent_id),
-                    )?;
-                }
-            };
-        }
+            }
 
-        Ok(Self { tree })
-    }
-
-    pub fn get_tree(&self) -> &Tree<WzImgNode> {
-        &self.tree
+            tree
+        })
     }
 }

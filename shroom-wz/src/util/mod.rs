@@ -1,6 +1,15 @@
-use std::io::{self, BufRead, Read, Seek, SeekFrom, Write};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    io::{self, BufRead, Read, Seek, SeekFrom, Write},
+    rc::Rc,
+};
 
-use crate::crypto::WzCrypto;
+pub mod animation;
+
+use binrw::BinRead;
+
+use crate::{crypto::WzCrypto, ty::WzStr};
 
 pub trait BufReadExt: BufRead {
     fn read_n<const N: usize>(&mut self) -> io::Result<[u8; N]> {
@@ -56,6 +65,12 @@ pub trait BufReadExt: BufRead {
     fn decompress_flate(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
         flate2::bufread::ZlibDecoder::new(self).read_to_end(buf)
     }
+
+    fn decompress_flate_size(&mut self, buf: &mut Vec<u8>, size: usize) -> io::Result<usize> {
+        buf.resize(size, 0);
+        flate2::bufread::ZlibDecoder::new(self).read_exact(buf)?;
+        Ok(size)
+    }
 }
 
 impl<T: BufRead> BufReadExt for T {}
@@ -92,14 +107,34 @@ pub trait WriteExt: Write {
 
 impl<T: Write> WriteExt for T {}
 
+pub type WzStrTable = Rc<RefCell<HashMap<u32, Rc<WzStr>>>>;
+
 #[derive(Debug, Clone, Copy)]
 pub struct WzContext<'a> {
     pub crypto: &'a WzCrypto,
+    pub str_table: &'a WzStrTable,
 }
 
-impl<'a> From<&'a WzCrypto> for WzContext<'a> {
-    fn from(value: &'a WzCrypto) -> Self {
-        WzContext { crypto: value }
+impl<'a> WzContext<'a> {
+    pub fn new(crypto: &'a WzCrypto, str_table: &'a WzStrTable) -> Self {
+        Self { crypto, str_table }
+    }
+
+    pub fn read_offset_str<R: Read + Seek>(
+        &self,
+        r: &mut R,
+        offset: u32,
+    ) -> anyhow::Result<Rc<WzStr>> {
+        if let Some(s) = self.str_table.borrow().get(&offset) {
+            return Ok(s.clone());
+        }
+
+        let pos = r.stream_position()?;
+        r.seek(SeekFrom::Start(offset as u64))?;
+        let str = Rc::new(WzStr::read_le_args(r, *self)?);
+        r.seek(SeekFrom::Start(pos))?;
+        self.str_table.borrow_mut().insert(offset, str.clone());
+        Ok(str)
     }
 }
 

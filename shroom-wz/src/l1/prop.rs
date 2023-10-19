@@ -1,6 +1,7 @@
 use std::io::{Read, Seek};
 
 use binrw::{binread, binrw, BinRead, BinWrite, PosValue};
+use derive_more::Unwrap;
 
 use crate::{
     ty::{WzF32, WzInt, WzLong, WzVec},
@@ -66,8 +67,8 @@ impl BinWrite for WzObj {
 
 #[binrw]
 #[brw(little, import_raw(ctx: WzContext<'_>))]
-#[derive(Debug, Clone)]
-pub enum WzValue {
+#[derive(Debug, Clone, Unwrap)]
+pub enum WzPropValue {
     #[br(magic(0u8))]
     Null,
 
@@ -102,17 +103,17 @@ pub enum WzValue {
 
 #[binrw]
 #[brw(little, import_raw(ctx: WzContext<'_>))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WzPropertyEntry {
     #[brw(args_raw(ctx))]
     pub name: WzUOLStr,
     #[brw(args_raw(ctx))]
-    pub val: WzValue,
+    pub val: WzPropValue,
 }
 
 #[binrw]
 #[brw(little, import_raw(ctx: WzContext<'_>))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WzProperty {
     pub unknown: u16,
     #[brw(args_raw(ctx))]
@@ -130,7 +131,7 @@ pub struct WzUOL {
 
 #[binrw]
 #[brw(little)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct WzVector2D {
     pub x: WzInt,
     pub y: WzInt,

@@ -240,6 +240,12 @@ pub struct Schema {
     schema_structs: HashMap<String, SchemaStruct>,
 }
 
+impl Default for Schema {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Schema {
     pub fn new() -> Self {
         Self {
@@ -276,12 +282,12 @@ impl Schema {
         for (_k, v) in dir.iter() {
             match v {
                 Value::Table(tbl) if check_vec2(tbl) => (),
-                Value::Table(tbl) if check_numeric(tbl) => self.process_num_dir(name, &tbl)?,
-                Value::Table(tbl) => self.process_dir(name, &tbl)?,
+                Value::Table(tbl) if check_numeric(tbl) => self.process_num_dir(name, tbl)?,
+                Value::Table(tbl) => self.process_dir(name, tbl)?,
                 Value::Array(arr) => {
                     for v in arr {
                         if let Value::Table(tbl) = v {
-                            self.process_dir(name, &tbl)?;
+                            self.process_dir(name, tbl)?;
                         }
                     }
                 }
@@ -307,12 +313,12 @@ impl Schema {
         for (k, v) in dir.iter() {
             match v {
                 Value::Table(tbl) if check_vec2(tbl) => (),
-                Value::Table(tbl) if check_numeric(tbl) => self.process_num_dir(k, &tbl)?,
-                Value::Table(tbl) => self.process_dir(k, &tbl)?,
+                Value::Table(tbl) if check_numeric(tbl) => self.process_num_dir(k, tbl)?,
+                Value::Table(tbl) => self.process_dir(k, tbl)?,
                 Value::Array(arr) => {
                     for v in arr {
                         if let Value::Table(tbl) = v {
-                            self.process_dir(k, &tbl)?;
+                            self.process_dir(k, tbl)?;
                         }
                     }
                 }

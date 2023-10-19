@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use serde::{
     ser::{SerializeMap, SerializeStruct},
@@ -9,15 +9,20 @@ use crate::file::{WzIO, WzImgReader};
 
 use super::{
     obj::WzObject,
-    prop::{WzConvex2D, WzValue, WzVector2D},
+    prop::{WzConvex2D, WzPropValue, WzVector2D},
 };
+
+pub const WZ_VEC2_STRUCT_NAME: &str = "_wz_vec2";
+pub const WZ_VEX2_STRUCT_NAME: &str = "_wz_vex2";
+pub const WZ_CANVAS_STRUCT_NAME: &str = "_wz_canvas";
+pub const WZ_SOUND_STRUCT_NAME: &str = "_wz_sound";
 
 impl Serialize for WzVector2D {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let mut s = serializer.serialize_struct("vec2", 2)?;
+        let mut s = serializer.serialize_struct(WZ_VEC2_STRUCT_NAME, 2)?;
         s.serialize_field("x", &self.x.0)?;
         s.serialize_field("y", &self.y.0)?;
         s.end()
@@ -29,12 +34,14 @@ impl Serialize for WzConvex2D {
     where
         S: serde::Serializer,
     {
-        self.0.serialize(serializer)
+        let mut s = serializer.serialize_struct(WZ_VEX2_STRUCT_NAME, 1)?;
+        s.serialize_field("vectors", &self.0)?;
+        s.end()
     }
 }
 
 pub struct WzValueSerializer<'r, R> {
-    value: &'r WzValue,
+    value: &'r WzPropValue,
     r: Rc<RefCell<WzImgReader<R>>>,
     skip_canvas: bool,
 }
@@ -50,14 +57,14 @@ impl<'r, R: WzIO> Serialize for WzValueSerializer<'r, R> {
             skip_canvas,
         } = self;
         match &value {
-            WzValue::Null => ser.serialize_none(),
-            WzValue::Short1(v) | WzValue::Short2(v) => ser.serialize_i16(*v),
-            WzValue::Int1(v) | WzValue::Int2(v) => ser.serialize_i32(v.0),
-            WzValue::Long(v) => ser.serialize_i64(v.0),
-            WzValue::F32(v) => ser.serialize_f32(v.0),
-            WzValue::F64(v) => ser.serialize_f64(*v),
-            WzValue::Str(v) => ser.serialize_str(v.as_str().unwrap_or("invalid")),
-            WzValue::Obj(obj) => {
+            WzPropValue::Null => ser.serialize_none(),
+            WzPropValue::Short1(v) | WzPropValue::Short2(v) => ser.serialize_i16(*v),
+            WzPropValue::Int1(v) | WzPropValue::Int2(v) => ser.serialize_i32(v.0),
+            WzPropValue::Long(v) => ser.serialize_i64(v.0),
+            WzPropValue::F32(v) => ser.serialize_f32(v.0),
+            WzPropValue::F64(v) => ser.serialize_f64(*v),
+            WzPropValue::Str(v) => ser.serialize_str(v.as_ref().as_str()),
+            WzPropValue::Obj(obj) => {
                 let r = r.clone();
                 let object = { r.as_ref().borrow_mut().read_obj(obj).unwrap() };
                 let obj_ser = WzObjectSerializer {
@@ -86,7 +93,7 @@ impl<'r, R: WzIO> Serialize for WzObjectSerializer<'r, R> {
             super::obj::WzObject::Property(prop) => {
                 let mut s = ser.serialize_map(prop.entries.0.len().into())?;
                 for entry in prop.entries.0.iter() {
-                    s.serialize_key(entry.name.as_str().unwrap())?;
+                    s.serialize_key(entry.name.as_ref().as_str())?;
                     let val_ser = WzValueSerializer {
                         value: &entry.val,
                         r: self.r.clone(),
@@ -103,7 +110,7 @@ impl<'r, R: WzIO> Serialize for WzObjectSerializer<'r, R> {
                 if let Some(ref prop) = canvas.property {
                     let mut s = ser.serialize_map(prop.entries.0.len().into())?;
                     for entry in prop.entries.0.iter() {
-                        s.serialize_key(entry.name.as_str().unwrap())?;
+                        s.serialize_key(entry.name.as_ref().as_str())?;
                         let val_ser = WzValueSerializer {
                             value: &entry.val,
                             r: self.r.clone(),
@@ -141,7 +148,7 @@ impl<R: WzIO> WzImgSerializer<R> {
     }
 }
 
-impl<'r, R: WzIO> Serialize for WzImgSerializer<R> {
+impl<R: WzIO> Serialize for WzImgSerializer<R> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

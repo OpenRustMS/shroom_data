@@ -75,7 +75,7 @@ fn flatten_into_array(tbl: &mut toml::Table) -> Option<Array> {
                 .map(|num| tbl.remove(&num.to_string()).unwrap())
                 .collect();
 
-            return Some(arr.into());
+            return Some(arr);
         }
     }
 

@@ -1,0 +1,71 @@
+use shroom_wz::val::ObjectVal;
+
+pub struct Mob {
+    pub level: i16,
+    pub max_hp: i32,
+    pub max_mp: i32,
+    pub hp_recovery: i32,
+    pub mp_recovery: i32,
+    pub pad: i32,
+    pub pdd: i32,
+    pub mad: i32,
+    pub mdd: i32,
+    pub mdr: i32,
+    pub pdr: i32,
+    pub evasion: i32,
+    pub acc: i32,
+
+    pub exp: i32,
+    pub is_boss: bool,
+    pub dead_buff: i32,
+    pub hp_gauge_hide: bool,
+    pub remove_time: i32,
+    pub hp_tag_bg_color: i32,
+    pub hp_tag_color: i32,
+    pub invincible: bool,
+    pub speed: i32,
+    pub fly_speed: i32,
+    pub chase_speed: i32,
+    pub fixed_damage: i32,
+    pub do_not_remove: bool,
+    pub self_destruct_action_type: i32,
+    pub self_destruct_remove_after: i32,
+    pub cannot_evade: i32,
+}
+
+impl Mob {
+    pub fn from_obj(obj: &ObjectVal) -> anyhow::Result<Self> {
+        let info: &ObjectVal = obj.must_get_into("info")?;
+        Ok(Self {
+            level: info.must_get_into("level")?,
+            max_hp: info.must_get_into("maxHP")?,
+            max_mp: info.must_get_into("maxMP")?,
+            hp_recovery: info.must_get_into("hpRecovery")?,
+            mp_recovery: info.must_get_into("mpRecovery")?,
+            pad: info.must_get_into("PADamage")?,
+            pdd: info.must_get_into("PDDamage")?,
+            mad: info.must_get_into("MADamage")?,
+            mdd: info.must_get_into("MDDamage")?,
+            mdr: info.must_get_into("MDRate")?,
+            pdr: info.must_get_into("PDRate")?,
+            evasion: info.must_get_into("eva")?,
+            acc: info.must_get_into("acc")?,
+            exp: info.must_get_into("exp")?,
+            is_boss: info.must_get_into::<i32>("boss")? > 0,
+            dead_buff: info.must_get_into("deadBuff")?,
+            hp_gauge_hide: info.must_get_into::<i32>("hpGaugeHide")? > 0,
+            remove_time: info.must_get_into("removeAfter")?,
+            hp_tag_bg_color: info.must_get_into("hpTagBgcolor")?,
+            hp_tag_color: info.must_get_into("hpTagColor")?,
+            invincible: info.must_get_into::<i32>("invincible")? > 0,
+            speed: info.must_get_into("speed")?,
+            fly_speed: info.must_get_into("flySpeed")?,
+            chase_speed: info.must_get_into("chaseSpeed")?,
+            fixed_damage: info.must_get_into("fixedDamage")?,
+            do_not_remove: info.must_get_into::<i32>("doNotRemove")? > 0,
+            self_destruct_action_type: info.must_get_into("selfDestructActionType")?,
+            self_destruct_remove_after: info.must_get_into("selfDestructRemoveAfter")?,
+            cannot_evade: info.must_get_into("cannotEvade")?,
+        })
+    }
+}

@@ -8,6 +8,7 @@ use lru::LruCache;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::Blob;
+
 pub struct MemoryMappedFile {
     blob: Blob,
     size: u64,

@@ -1,0 +1,16 @@
+integer = @{ ASCII_DIGIT+ }
+
+var      =  { "x" }
+ceil     =  { "u(" ~ expr ~ ")" }
+floor     =  { "d(" ~ expr ~ ")" }
+atom     = _{ integer | var | "(" ~ expr ~ ")" | ceil | floor }
+bin_op   = _{ add | subtract | multiply | divide }
+add      =  { "+" }
+subtract =  { "-" }
+multiply =  { "*" }
+divide   =  { "/" }
+
+expr       =  { atom ~ (bin_op ~ atom)* }
+WHITESPACE = _{ " " }
+
+equation = _{ SOI ~ expr ~ EOI }

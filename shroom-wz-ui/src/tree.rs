@@ -1,11 +1,14 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use dioxus::prelude::*;
 use id_tree::{NodeId, Tree};
 
 pub trait TreeData {
-    fn get_label(&self) -> String;
+    fn get_label(&self) -> Cow<'_, str>;
     fn can_select(&self) -> bool;
+    fn expanded_childs(&self) -> bool {
+        false
+    }
 }
 
 pub struct TreeNodeCtx {
@@ -53,7 +56,11 @@ fn TreeNode<'a, T: TreeData>(cx: Scope<'a, TreeNodeProps<'a, T>>) -> Element<'a>
     } = cx.props;
     let ctx = use_shared_state::<TreeNodeCtx>(cx).unwrap();
 
-    let expanded = ctx.read().is_expanded(&node_id);
+    let node = tree.get(node_id).unwrap();
+    let data = node.data();
+    let is_leaf = node.children().is_empty();
+    let expand_childs = data.expanded_childs();
+    let expanded = expand_childs || ctx.read().is_expanded(node_id);
 
     let childs = tree
         .children_ids(node_id)
@@ -65,35 +72,25 @@ fn TreeNode<'a, T: TreeData>(cx: Scope<'a, TreeNodeProps<'a, T>>) -> Element<'a>
                 tree: tree,
                 node_id: node.clone(),
                 level: level + 1,
-                on_select: move |node| on_select.call(node)
+                on_select: move |node| on_select.call(node),
             })
         });
 
-    let node = tree.get(node_id).unwrap();
-    let data = node.data();
-    let is_leaf = node.children().is_empty();
-
     let label = data.get_label();
-
-    let prefix = match (is_leaf, expanded) {
-        (false, false) => "› ",
-        (false, true) => "⌄ ",
-        (true, _) => "",
-    };
-
     let active = if ctx.read().is_selected(node_id) {
         "active"
     } else {
         ""
     };
 
-    let pad_level = level.max(&1);
-
-    let item = rsx!(button {
-            class: "list-group-item list-group-item-action {active}",
+    let elem = if !is_leaf {
+        rsx!(details{
+            prevent_default: "onclick",
+            class: active,
+            open: expanded,
             onclick: move |_| {
                 let mut ctx = ctx.write();
-                if !is_leaf {
+                if !is_leaf && !expand_childs {
                     ctx.on_expand_toggle(node_id.clone());
                 }
 
@@ -102,21 +99,32 @@ fn TreeNode<'a, T: TreeData>(cx: Scope<'a, TreeNodeProps<'a, T>>) -> Element<'a>
                     on_select.call(node_id.clone());
                 }
             },
-            span {
-                style: "padding-left: calc({pad_level} * 1.75rem);"
+            summary {
+                class: "active",
+                "{label}"
             }
-            "{prefix}{label}"
-        }
-    );
-
-    if expanded {
-        cx.render(rsx!(Fragment {
-            item
-            childs
-        }))
+            ul {
+                childs
+            }
+        })
     } else {
-        cx.render(rsx!(Fragment { item }))
-    }
+        rsx!(a {
+            class: active,
+            onclick: move |_| {
+                let mut ctx = ctx.write();
+                if !is_leaf && !expand_childs  {
+                    ctx.on_expand_toggle(node_id.clone());
+                }
+
+                if data.can_select() {
+                    ctx.on_select(node_id.clone());
+                    on_select.call(node_id.clone());
+                }
+            },
+            "{label}"
+        })
+    };
+    cx.render(rsx!(li { elem }))
 }
 
 #[derive(Props)]
@@ -136,12 +144,12 @@ pub fn TreeView<'a, T: TreeData>(cx: Scope<'a, TreeProps<'a, T>>) -> Element<'a>
         expand_all: false,
     });
 
-    let ctx = use_shared_state::<TreeNodeCtx>(cx).expect("Tree context");
+    let _ctx = use_shared_state::<TreeNodeCtx>(cx).expect("Tree context");
 
     cx.render(rsx!(
     ul {
-        class: "list-group",
-        li {
+        class: "menu menu-xs bg-base-200 rounded-lg max-w-xs w-full",
+        /*li {
             class: "list-group-item",
             button {
                 class: "btn btn-primary m-1",
@@ -158,7 +166,7 @@ pub fn TreeView<'a, T: TreeData>(cx: Scope<'a, TreeProps<'a, T>>) -> Element<'a>
                 },
                 "Collapse All"
             }
-        },
+        },*/
         TreeNode {
             tree: tree,
             node_id: root_id.clone(),

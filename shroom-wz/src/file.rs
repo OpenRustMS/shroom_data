@@ -7,20 +7,21 @@ use std::{
     sync::Arc,
 };
 
-use binrw::BinRead;
+use binrw::{BinRead, PosValue};
 
 use crate::{
     canvas::Canvas,
     crypto::WzCrypto,
-    l0::{WzDir, WzDirHeader, WzDirNode, WzHeader, WzImgHeader},
+    l0::{WzDir, WzDirHeader, WzDirNode, WzHeader, WzImgHeader, WzLinkData},
     l1::{
         canvas::WzCanvas,
         obj::WzObject,
-        prop::{WzObj, WzValue},
+        prop::{WzObj, WzPropValue},
         ser::WzImgSerializer,
+        sound::WzSound,
     },
-    ty::WzOffset,
-    util::{BufReadExt, SubReader},
+    ty::{WzInt, WzOffset},
+    util::{BufReadExt, SubReader, WzContext, WzStrTable},
     version::{WzRegion, WzVersion},
 };
 pub trait WzIO: BufRead + Seek {}
@@ -29,12 +30,19 @@ impl<T> WzIO for T where T: BufRead + Seek {}
 pub struct WzImgReader<R> {
     r: R,
     crypto: Rc<WzCrypto>,
+    str_table: WzStrTable,
 }
 
 impl<R> WzImgReader<R>
 where
     R: WzIO,
 {
+    pub fn root_obj(&self) -> WzObj {
+        WzObj {
+            len: PosValue { val: 0, pos: 0 },
+        }
+    }
+
     pub fn read_path(&mut self, root: &WzObject, path: &str) -> anyhow::Result<WzObject> {
         let mut cur = root.clone();
         let mut obj_storage = None;
@@ -48,11 +56,11 @@ where
                 .entries
                 .0
                 .iter()
-                .find(|x| x.name.as_str() == Some(part))
+                .find(|x| x.name.as_ref().as_str() == part)
                 .ok_or_else(|| anyhow::format_err!("Invalid {path}"))?;
 
             let obj = match &next.val {
-                WzValue::Obj(ref obj) => obj,
+                WzPropValue::Obj(ref obj) => obj,
                 _ => anyhow::bail!("Invalid obj: {cur:?}"),
             };
             obj_storage = Some(self.read_obj(obj)?);
@@ -67,23 +75,31 @@ where
         self.r.rewind()?;
         Ok(WzObject::read_le_args(
             &mut self.r,
-            self.crypto.as_ref().into(),
+            WzContext::new(&self.crypto, &self.str_table),
         )?)
     }
 
     /// Read an object with the given object header
     pub fn read_obj(&mut self, obj: &WzObj) -> anyhow::Result<WzObject> {
+        // Check for root
+        let ix = if obj.len.pos == 0 && obj.len.val == 0 {
+            0
+        } else {
+            obj.len.pos + 4
+        };
+
         // Skip first index
-        self.r.seek(SeekFrom::Start(obj.len.pos + 4))?;
+        self.r.seek(SeekFrom::Start(ix))?;
         Ok(WzObject::read_le_args(
             &mut self.r,
-            self.crypto.as_ref().into(),
+            WzContext::new(&self.crypto, &self.str_table),
         )?)
     }
 
     fn read_canvas_from<T: BufRead>(mut r: T, canvas: &WzCanvas) -> anyhow::Result<Canvas> {
-        let mut img_buf = Vec::with_capacity(canvas.bitmap_size() as usize);
-        r.decompress_flate(&mut img_buf)?;
+        let sz = canvas.bitmap_size() as usize;
+        let mut img_buf = Vec::with_capacity(sz);
+        r.decompress_flate_size(&mut img_buf, sz)?;
         Ok(Canvas::from_data(img_buf, canvas))
     }
 
@@ -94,8 +110,8 @@ where
 
         let hdr = self.r.peek_u16()?;
         // Match header
-        match hdr {
-            0x9C78 | 0xDA78 | 0x0178 | 0x5E78 => {
+        match hdr & 0xFF {
+            0x78 => {
                 let mut sub = (&mut self.r).take(len as u64);
                 Self::read_canvas_from(&mut sub, canvas)
                 // TODO maybe advance r here not sure
@@ -107,6 +123,18 @@ where
         }
     }
 
+    pub fn read_sound(&mut self, sound: &WzSound) -> anyhow::Result<Vec<u8>> {
+        let offset = sound.offset.pos;
+        let ln = sound.data_size();
+        let old = self.r.stream_position()?;
+        self.r.seek(SeekFrom::Start(offset))?;
+        let mut data = vec![0; ln];
+        self.r.read_exact(&mut data)?;
+        self.r.seek(SeekFrom::Start(old))?;
+
+        Ok(data)
+    }
+
     pub fn into_serializer(self, skip_canvas: bool) -> anyhow::Result<WzImgSerializer<R>> {
         WzImgSerializer::new(self, skip_canvas)
     }
@@ -116,6 +144,7 @@ where
 pub struct WzReader<R> {
     inner: R,
     crypto: Rc<WzCrypto>,
+    str_table: WzStrTable,
     data_offset: u64,
 }
 
@@ -149,6 +178,7 @@ where
             inner: rdr,
             crypto: WzCrypto::from_region(region, ver, hdr.data_offset).into(),
             data_offset: hdr.data_offset as u64,
+            str_table: WzStrTable::default(),
         })
     }
 
@@ -159,6 +189,7 @@ where
             inner: rdr,
             crypto: WzCrypto::from_region(region, ver, data_offset).into(),
             data_offset: data_offset as u64,
+            str_table: WzStrTable::default(),
         })
     }
 
@@ -166,9 +197,13 @@ where
         SubReader::new(&mut self.inner, offset, size)
     }
 
+    pub fn root_offset(&self) -> WzOffset {
+        WzOffset(self.data_offset as u32 + 2)
+    }
+
     pub fn read_root_dir(&mut self) -> anyhow::Result<WzDir> {
         // Skip encrypted version at the start
-        self.read_dir(self.data_offset + 2)
+        self.read_dir(self.root_offset().0 as u64)
     }
 
     pub fn read_dir_node(&mut self, hdr: &WzDirHeader) -> anyhow::Result<WzDir> {
@@ -179,7 +214,7 @@ where
         self.set_pos(offset)?;
         Ok(WzDir::read_le_args(
             &mut self.inner,
-            (self.crypto.as_ref()).into(),
+            WzContext::new(&self.crypto, &self.str_table),
         )?)
     }
 
@@ -189,10 +224,12 @@ where
         let off = 0;
         self.set_pos(off)?;
         let crypto = self.crypto.clone();
+        let str_table = self.str_table.clone();
 
         Ok(WzImgReader {
             r: self.sub_reader(off, end),
             crypto,
+            str_table,
         })
     }
 
@@ -200,24 +237,56 @@ where
         let off = hdr.offset.into();
         self.set_pos(off)?;
         let crypto = self.crypto.clone();
+        let str_table = self.str_table.clone();
 
         Ok(WzImgReader {
             r: self.sub_reader(off, hdr.blob_size.0 as u64),
             crypto,
+            str_table,
         })
     }
+    /*
+        pub fn link_img_reader(
+            &mut self,
+            hdr: &WzLinkData,
+        ) -> io::Result<WzImgReader<SubReader<'_, R>>> {
+            let off = hdr.offset.into();
+            self.set_pos(off)?;
+            let crypto = self.crypto.clone();
+            let str_table = self.str_table.clone();
 
-    pub fn img_iter(&mut self) -> WzImgIter<'_, R> {
+            Ok(WzImgReader {
+                r: self.sub_reader(off, hdr..0 as u64),
+                crypto,
+                str_table,
+            })
+        }
+    */
+    pub fn traverse_images(&mut self) -> WzImgTraverser<'_, R> {
         let mut q = VecDeque::new();
         q.push_back((
             Arc::new("".to_string()),
             WzDirNode::Dir(WzDirHeader::root("root", 1, self.root_offset())),
         ));
-        WzImgIter { r: self, q }
+        WzImgTraverser { r: self, q }
     }
 
-    pub fn root_offset(&self) -> WzOffset {
-        WzOffset(self.data_offset as u32 + 2)
+    pub fn read_path(&mut self, root: &WzDirNode, path: &str) -> anyhow::Result<WzDirNode> {
+        let mut cur = root.clone();
+
+        for part in path.split('/') {
+            let WzDirNode::Dir(dir) = cur else {
+                anyhow::bail!("Invalid dir: {cur:?}");
+            };
+
+            let dir = self.read_dir_node(&dir)?;
+            let next = dir.get(part).ok_or_else(|| {
+                anyhow::format_err!("Invalid {path}: {part} not found in {dir:?}")
+            })?;
+            cur = next.clone();
+        }
+
+        Ok(cur)
     }
 
     fn set_pos(&mut self, p: u64) -> io::Result<()> {
@@ -226,19 +295,19 @@ where
     }
 }
 
-pub struct WzImgIter<'r, R> {
+pub struct WzImgTraverser<'r, R> {
     r: &'r mut WzReader<R>,
     q: VecDeque<(Arc<String>, WzDirNode)>,
 }
 
-impl<'r, R: WzIO> WzImgIter<'r, R> {
+impl<'r, R: WzIO> WzImgTraverser<'r, R> {
     fn handle_dir(
         &mut self,
         root_name: &str,
         dir: &WzDirHeader,
     ) -> anyhow::Result<(Arc<String>, WzDir)> {
         let node = self.r.read_dir_node(dir)?;
-        let node_name = Arc::new(format!("{}/{}", root_name, dir.name.as_str().unwrap()));
+        let node_name = Arc::new(format!("{}/{}", root_name, dir.name.as_str()));
 
         self.q.extend(
             node.entries
@@ -251,7 +320,7 @@ impl<'r, R: WzIO> WzImgIter<'r, R> {
     }
 }
 
-impl<'r, R> Iterator for WzImgIter<'r, R>
+impl<'r, R> Iterator for WzImgTraverser<'r, R>
 where
     R: WzIO,
 {
@@ -266,7 +335,12 @@ where
                     }
                 }
                 WzDirNode::Img(img) => {
-                    let name = format!("{}/{}", root_name, img.name.as_str().unwrap());
+                    let name = format!("{}/{}", root_name, img.name.as_str());
+                    return Some(Ok((name, img)));
+                }
+                WzDirNode::Link(link) => {
+                    let img = link.link.link_img;
+                    let name = format!("{}/{}", root_name, img.name.as_str());
                     return Some(Ok((name, img)));
                 }
                 _ => {
@@ -280,7 +354,7 @@ where
 }
 
 #[cfg(feature = "mmap")]
-mod mmap {
+pub mod mmap {
     use std::{fs::File, io::Cursor, path::Path};
 
     use memmap2::Mmap;

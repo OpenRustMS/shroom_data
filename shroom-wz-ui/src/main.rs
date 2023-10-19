@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+pub mod audio_view;
 pub mod image_view;
 pub mod tree;
 pub mod web_map;
@@ -9,38 +10,31 @@ use std::{io::Cursor, rc::Rc};
 
 use anyhow::anyhow;
 use dioxus::prelude::*;
-use js_sys::Uint8Array;
+use gloo::file::futures::read_as_bytes;
 use shroom_wz::version::WzVersion;
 use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
 use web_sys::HtmlInputElement;
 
 use crate::wz::{WzApp, WzData};
 
-async fn read_wz_data(file_input_id: &str, version: WzVersion) -> anyhow::Result<WzData> {
-    let win = web_sys::window()
-        .unwrap()
-        .document()
-        .expect("should have a document.");
-    let el = win
+fn get_selected_file_from_input(file_input_id: &str) -> anyhow::Result<gloo::file::File> {
+    let window = gloo::utils::document();
+    let el = window
         .get_element_by_id(file_input_id)
         .unwrap()
         .dyn_into::<HtmlInputElement>()
         .unwrap();
-    let files = el.files().unwrap();
-    let file = files.get(0).expect("should contain one file");
-    let filename = file.name();
+    let files: gloo::file::FileList = el.files().expect("must have FileList").into();
+    files
+        .get(0)
+        .ok_or_else(|| anyhow::format_err!("should contain one file"))
+        .cloned()
+}
 
-    let buf = JsFuture::from(file.array_buffer())
-        .await
-        .map_err(|_| anyhow!("Unable to load file"))?;
-    let buf = buf.dyn_into::<js_sys::ArrayBuffer>().expect("array buffer");
-    let array = Uint8Array::new(&buf);
-    let bytes: Vec<u8> = array.to_vec();
-
-    console_error_panic_hook::set_once();
-
-    WzData::from_file(&filename, Cursor::new(bytes), version)
+async fn read_wz_data(file_input_id: &str, version: WzVersion) -> anyhow::Result<WzData> {
+    let file = get_selected_file_from_input(file_input_id)?;
+    let data = read_as_bytes(&file).await?;
+    WzData::from_file(&file.name(), Cursor::new(data), version)
 }
 
 fn parse_version(form_data: &FormData) -> anyhow::Result<WzVersion> {
@@ -55,6 +49,7 @@ fn parse_version(form_data: &FormData) -> anyhow::Result<WzVersion> {
 
 #[inline_props]
 fn FileForm(cx: Scope, wz: UseState<Option<Rc<WzData>>>) -> Element {
+    const FILE_INPUT_ID: &str = "wz-file-input";
     let alert_error = use_state(cx, || None);
 
     let load_file = |version: WzVersion| {
@@ -62,13 +57,13 @@ fn FileForm(cx: Scope, wz: UseState<Option<Rc<WzData>>>) -> Element {
         to_owned![alert_error];
         cx.spawn({
             async move {
-                match read_wz_data("filegetter", version).await {
-                    Ok(wz_data) => {
-                        wz.set(Some(Rc::new(wz_data)));
-                        return;
+                match read_wz_data(FILE_INPUT_ID, version).await {
+                    Ok(file) => {
+                        wz.set(Some(Rc::new(file)));
+                        alert_error.set(None);
                     }
-                    Err(err) => {
-                        alert_error.set(Some(format!("{:?}", err)));
+                    Err(e) => {
+                        alert_error.set(Some(e.to_string()));
                     }
                 }
             }
@@ -77,53 +72,56 @@ fn FileForm(cx: Scope, wz: UseState<Option<Rc<WzData>>>) -> Element {
 
     cx.render(rsx! {
         div {
-            class: "row justify-content-center",
-            div  {
-                class: "col-md-6",
-        if let Some(msg) = alert_error.get() {
-            Some(rsx!(div {
-                class: "alert alert-danger",
-                "{msg}"
-            }))
-        }
+            class: "flex flex-col justify-center items-center gaps-4",
+                if let Some(msg) = alert_error.get() {
+                    Some(rsx!(div {
+                        class: "alert alert-error",
+                        "{msg}"
+                    }))
+                }
         form {
-            class: "p-3",
+            class: "space-y-3",
             //prevent_default: "onsubmit",
             onsubmit: move |ev: Event<FormData>| {
                 let Ok(selected_version) = parse_version(&ev.data) else {
-                        alert_error.set(Some("Invalid version".to_string()));
-                        return;
-                    };
+                    alert_error.set(Some("Invalid version".to_string()));
+                    return;
+                };
+                log::info!("files: {:?}", ev.data.values.get("file"));
                 load_file(selected_version);
             },
             div {
-                class: "mb-3",
+                class: "form-control w-full max-w-xs",
+                label {
+                    class: "label",
+                    "File(.wz)"
+                }
                 input {
-                    id: "filegetter",
+                    id: FILE_INPUT_ID,
                     r#type: "file",
-                    class: "form-control",
+                    accept: "*.wz",
+                    class: "file-input file-input-bordered w-full max-w-xs",
                     name: "file"
                 }
             },
             div {
-                class: "mb-3",
+                class: "form-control w-full max-w-xs",
                 label {
-                    class: "form-label",
+                    class: "label",
                     "Version"
                 }
                 input {
                     r#type: "number",
-                    class: "form-control",
+                    class: "input input-bordered w-full max-w-xs",
                     name: "version",
                     value: "95",
                 }
             },
             input {
-                class: "btn btn-primary",
+                class: "btn btn-primary w-full",
                 r#type: "submit",
                 "Load"
             }
-        }
     }}
     })
 }
@@ -140,7 +138,7 @@ fn WebApp(cx: Scope) -> Element {
 
     cx.render(rsx! {
         div {
-            class: "container-fluid",
+            class: "lex min-h-full flex-col justify-center px-6 py-12 lg:px-8",
             main
         }
     })

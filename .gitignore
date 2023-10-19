@@ -3,3 +3,6 @@
 
 out
 **/dist
+
+shroom-wz-ui/public/css/**
+shroom-wz-ui/public/js/**

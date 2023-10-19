@@ -11,14 +11,22 @@ mmap = ["memmap2"]
 aes = "0.8"
 anyhow = "1"
 binary-layout = "3"
-binrw = "0.11"
+binrw = "0.12"
 bytemuck = "1"
 deflate = "1"
 id_tree = "1"
 image = "0.24"
 itoa = "1"
-flate2 = { version = "1", features = ["zlib"] }
-memmap2 = { version = "0.7", optional = true }
+flate2 = { version = "1" }
+memmap2 = { version = "0.9", optional = true }
 log = "0.4"
-texpresso = "2.0.1"
-serde = { version = "1.0.188", features = ["derive"] }
+texpresso = "2"
+serde = { version = "1", features = ["derive"] }
+libflate = "2"
+utf16string = "0.2.0"
+gif = "0.12.0"
+rodio = "0.17.1"
+derive_more = "0.99.17"
+uuid = { version = "1.4.1", features = ["v4"] }
+indexmap = "2.0.2"
+ouroboros = "0.18.0"

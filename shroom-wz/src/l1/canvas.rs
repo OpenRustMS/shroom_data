@@ -5,7 +5,7 @@ use crate::util::WzContext;
 
 use super::prop::WzProperty;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WzCanvasScaling(pub u8);
 
 impl WzCanvasScaling {
@@ -24,6 +24,11 @@ impl TryFrom<u8> for WzCanvasScaling {
             0 | 4 => n,
             _ => anyhow::bail!("Invalid scaling: {n}"),
         }))
+    }
+}
+impl From<WzCanvasScaling> for u8 {
+    fn from(val: WzCanvasScaling) -> Self {
+        val.0
     }
 }
 
@@ -63,9 +68,21 @@ impl TryFrom<WzInt> for WzCanvasDepth {
     }
 }
 
+impl From<WzCanvasDepth> for WzInt {
+    fn from(val: WzCanvasDepth) -> Self {
+        WzInt(match val {
+            WzCanvasDepth::BGRA4444 => 1,
+            WzCanvasDepth::BGRA8888 => 2,
+            WzCanvasDepth::BGR565 => 513,
+            WzCanvasDepth::DXT3 => 1026,
+            WzCanvasDepth::DXT5 => 2050,
+        })
+    }
+}
+
 #[binread]
 #[brw(little, import_raw(ctx: WzContext<'_>))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WzCanvas {
     pub unknown: u8,
     pub has_property: u8,

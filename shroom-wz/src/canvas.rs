@@ -34,8 +34,8 @@ fn bgra8_to_rgba8(v: u32) -> Rgba<u8> {
 pub struct Canvas {
     data: Vec<u8>,
     depth: WzCanvasDepth,
-    width: u32,
-    height: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Canvas {
@@ -95,7 +95,6 @@ impl Canvas {
         self.height * self.width * self.depth.depth_size()
     }
 }
-
 
 #[cfg(test)]
 mod tests {
